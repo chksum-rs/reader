@@ -1,0 +1,19 @@
+[package]
+name = "chksum-reader"
+version = "0.0.0"
+authors = ["Konrad Goławski <konrad@golawski.it>"]
+edition = "2021"
+rust-version = "1.70.0"
+description = "A convenient interface for calculating hash digests on the fly while reading data from a reader."
+readme = ".cargo/README.md"
+repository = "https://github.com/chksum-rs/reader"
+license = "MIT"
+keywords = ["checksum", "digest", "hash", "reader"]
+categories = ["algorithms", "cryptography", "filesystem"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[dependencies]
+chksum-core = "0.0.0"
