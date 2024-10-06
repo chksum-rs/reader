@@ -15,6 +15,14 @@
 //! cargo add chksum-reader
 //! ```     
 //!
+//! # Features
+//!
+//! ## Asynchronous Runtime
+//!
+//! * `async-runtime-tokio`: Enables async interface for Tokio runtime.
+//!
+//! By default, neither of these features is enabled.
+//!
 //! # Usage
 //!
 //! ```rust,ignore
@@ -51,11 +59,18 @@
 //!
 //! This crate is licensed under the MIT License.
 
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
 #![forbid(unsafe_code)]
 
 use std::io::{self, BufRead, Read};
+#[cfg(feature = "async-runtime-tokio")]
+use std::pin::{pin, Pin};
+#[cfg(feature = "async-runtime-tokio")]
+use std::task::{Context, Poll};
 
 use chksum_core::Hash;
+#[cfg(feature = "async-runtime-tokio")]
+use tokio::io::{AsyncRead, AsyncReadExt, ReadBuf};
 
 /// Creates new [`Reader`].
 pub fn new<R, H>(inner: R) -> Reader<R, H>
@@ -73,6 +88,26 @@ where
     H: Hash,
 {
     Reader::with_hash(inner, hash)
+}
+
+#[cfg(feature = "async-runtime-tokio")]
+/// Creates new [`AsyncReader`].
+pub fn async_new<R, H>(inner: R) -> AsyncReader<R, H>
+where
+    R: AsyncReadExt,
+    H: Hash,
+{
+    AsyncReader::new(inner)
+}
+
+#[cfg(feature = "async-runtime-tokio")]
+/// Creates new [`AsyncReader`] with provided hash.
+pub fn async_with_hash<R, H>(inner: R, hash: H) -> AsyncReader<R, H>
+where
+    R: AsyncReadExt,
+    H: Hash,
+{
+    AsyncReader::with_hash(inner, hash)
 }
 
 /// Wraps a reader and calculates the hash digest on the fly.
@@ -140,5 +175,67 @@ where
 
     fn fill_buf(&mut self) -> io::Result<&[u8]> {
         self.inner.fill_buf()
+    }
+}
+
+/// Wraps a reader and calculates the hash digest on the fly.
+#[cfg(feature = "async-runtime-tokio")]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AsyncReader<R, H>
+where
+    R: AsyncReadExt,
+    H: Hash,
+{
+    inner: R,
+    hash: H,
+}
+
+#[cfg(feature = "async-runtime-tokio")]
+impl<R, H> AsyncReader<R, H>
+where
+    R: AsyncReadExt,
+    H: Hash,
+{
+    /// Creates new [`AsyncReader`].
+    pub fn new(inner: R) -> Self {
+        let hash = H::default();
+        Self::with_hash(inner, hash)
+    }
+
+    /// Creates new [`AsyncReader`] with provided hash.
+    #[must_use]
+    pub const fn with_hash(inner: R, hash: H) -> Self {
+        Self { inner, hash }
+    }
+
+    /// Unwraps this [`AsyncReader`], returning the underlying reader.
+    #[must_use]
+    pub fn into_inner(self) -> R {
+        let Self { inner, .. } = self;
+        inner
+    }
+
+    /// Returns calculated hash digest.
+    #[must_use]
+    pub fn digest(&self) -> H::Digest {
+        self.hash.digest()
+    }
+}
+
+#[cfg(feature = "async-runtime-tokio")]
+impl<R, H> AsyncRead for AsyncReader<R, H>
+where
+    R: AsyncRead + Unpin,
+    H: Hash + Unpin,
+{
+    fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
+        let Self { inner, hash } = self.get_mut();
+        match pin!(inner).poll_read(cx, buf) {
+            Poll::Ready(Ok(())) => {
+                hash.update(buf.filled());
+                Poll::Ready(Ok(()))
+            },
+            poll => poll,
+        }
     }
 }
